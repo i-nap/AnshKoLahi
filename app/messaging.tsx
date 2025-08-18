@@ -18,46 +18,13 @@ import {
   TextInput,
 } from 'react-native-gesture-handler';
 
-import { Content, GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } from '@google/generative-ai';
-
-const API_KEY = 'ansh_yaha_rakha_la';
-
-const genai = new GoogleGenerativeAI(API_KEY);
-
-const model = genai.getGenerativeModel({
-  model: 'gemini-1.5-flash',
-  systemInstruction: `You are "Aura," a supportive and compassionate mental health companion chatbot. 
-    Your purpose is to provide a safe, non-judgmental space for users to express their feelings.
-
-    **Your Core Rules:**
-    1.  **Always be empathetic, patient, and encouraging.** Use a calm and reassuring tone.
-    2.  **Encourage users to seek professional help** for serious issues.
-    3.  **CRITICAL SAFETY RULE:** If a user expresses thoughts of self-harm, suicide, or harming others, immediately and calmly provide the following crisis resource and then stop the conversation on that topic: "It sounds like you are going through a difficult time. Please consider reaching out for immediate support. You can connect with people who can support you by calling or texting 988 anytime in the US and Canada. In the UK, you can call 111."
-    4.  Do not engage in debates or arguments. Your role is to listen and support.
-    5. You are to give nepali numbers`,
-});
-
-const generationConfig = {
-  temperature: 0.9,
-  topK: 1,
-  topP: 1,
-  maxOutputTokens: 2048,
-};
-
-const safetySettings = [
-    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-];
+// NOTE: The HistoryContent interface is now removed.
 
 interface Message {
   id: string;
   text: string;
   isUser: boolean;
   timestamp: Date;
-  showYesNoButtons?: boolean;
-  subCategoryKey?: string;
 }
 
 const makePhoneCall = (phoneNumber: string) => {
@@ -75,12 +42,12 @@ const makePhoneCall = (phoneNumber: string) => {
 };
 
 const MessageTextWithClickableNumbers = ({ text, style }: { text: string; style: any }) => {
-  const phoneRegex = /(\b\d{1}-\d{3}-\d{3}-\d{4}\b|\b\d{3}\b|\b\d{1}-\d{3}-\d{3}-\d{3}\b|\b\d{10}\b)/g;
+  const phoneRegex = /(\b\d{10}\b|\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b|\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\b\d{3}\b)/g;
   const parts = text.split(phoneRegex);
   return (
     <Text style={style}>
       {parts.map((part, index) => {
-        if (phoneRegex.test(part)) {
+        if (part && phoneRegex.test(part)) {
           return (
             <Text key={index} style={[style, styles.phoneLink]} onPress={() => makePhoneCall(part)}>
               {part}
@@ -93,6 +60,10 @@ const MessageTextWithClickableNumbers = ({ text, style }: { text: string; style:
   );
 };
 
+// Replace this with your actual backend endpoint
+const CHAT_API_ENDPOINT = 'https://your-backend-url.com/api/chat'; 
+// TODO: Replace this placeholder with the actual logged-in user's name or ID
+const USERNAME = 'User123';
 
 export default function MessagingScreen() {
   const router = useRouter();
@@ -105,10 +76,10 @@ export default function MessagingScreen() {
     },
   ]);
   const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false); // NEW: State to track loading
+  const [isLoading, setIsLoading] = useState(false);
   const flatListRef = useRef<FlatList<Message>>(null);
-
-  const conversationHistoryRef = useRef<Content[]>([]);
+  
+  // NOTE: The conversationHistoryRef has been removed.
 
   useEffect(() => {
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
@@ -118,51 +89,62 @@ export default function MessagingScreen() {
     const text = inputText.trim();
     if (!text || isLoading) return;
 
-    const newMessage: Message = {
+    const userMessage: Message = {
       id: Date.now().toString(),
       text,
       isUser: true,
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, newMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setInputText('');
     setIsLoading(true);
 
     try {
-        const chat = model.startChat({
-            generationConfig,
-            safetySettings,
-            history: conversationHistoryRef.current,
-        });
+      // Send the username and the new message to your backend
+      const response = await fetch(CHAT_API_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: USERNAME, // Sending username
+          message: text,      // Sending message
+        }),
+      });
 
-        const result = await chat.sendMessage(text);
-        const response = result.response;
-        const botText = response.text();
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const botText = data.reply;
 
-        const botMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            text: botText,
-            isUser: false,
-            timestamp: new Date(),
-        };
+      if (!botText) {
+          throw new Error("Invalid response from server.");
+      }
 
-        conversationHistoryRef.current.push({ role: 'user', parts: [{ text: text }]});
-        conversationHistoryRef.current.push({ role: 'model', parts: [{ text: botText }]});
-        
-        setMessages(prev => [...prev, botMessage]);
+      const botMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: botText,
+        isUser: false,
+        timestamp: new Date(),
+      };
+      
+      // NOTE: History update logic is removed.
+      setMessages(prev => [...prev, botMessage]);
 
     } catch (error) {
-        console.error("Gemini API Error:", error);
-        const errorMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            text: "Sorry, I'm having trouble connecting right now. Please try again later.",
-            isUser: false,
-            timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, errorMessage]);
+      console.error("API Error:", error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: "Sorry, I'm having trouble connecting right now. Please try again later.",
+        isUser: false,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -200,7 +182,6 @@ export default function MessagingScreen() {
             ListFooterComponent={isLoading ? <ActivityIndicator style={{ margin: 10 }} /> : null}
           />
           
-          {/* MODIFIED: Removed the button logic for categories */}
           <View style={styles.inputArea}>
             <View style={styles.inputContainer}>
               <TextInput
@@ -209,7 +190,7 @@ export default function MessagingScreen() {
                 onChangeText={setInputText}
                 placeholder="Type a message..."
                 placeholderTextColor="#999"
-                editable={!isLoading} // NEW: Disable input when loading
+                editable={!isLoading}
               />
               <Pressable
                 style={({ pressed }) => [
@@ -218,7 +199,7 @@ export default function MessagingScreen() {
                   { opacity: pressed ? 0.7 : 1 }
                 ]}
                 onPress={sendMessage}
-                disabled={!inputText.trim() || isLoading} // NEW: Disable button when loading
+                disabled={!inputText.trim() || isLoading}
               >
                 <Text style={styles.sendButtonText}>➤</Text>
               </Pressable>
@@ -230,7 +211,6 @@ export default function MessagingScreen() {
   );
 }
 
-// MODIFIED: Adjusted styles slightly for the new layout (removed button-related padding)
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: 'white' },
   keyboardAvoidingContainer: { flex: 1 },
@@ -248,7 +228,7 @@ const styles = StyleSheet.create({
   systemMessageBubble: { backgroundColor: '#E5E5EA' },
   userMessageText: { color: 'white', fontSize: 16 },
   systemMessageText: { color: 'black', fontSize: 16 },
-  phoneLink: { textDecorationLine: 'underline', color: '#007AFF', fontWeight: 'bold' }, // Made phone link stand out more in bot replies
+  phoneLink: { textDecorationLine: 'underline', color: 'white', fontWeight: 'bold' },
   timestamp: { fontSize: 10, color: '#FFFFFF99', alignSelf: 'flex-end', marginTop: 4 },
   systemTimestamp: { color: '#00000099' },
   inputArea: { borderTopWidth: 1, borderTopColor: '#F0F0F0', backgroundColor: 'white' },
